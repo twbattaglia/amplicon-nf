@@ -6,3 +6,5 @@ results/
 ._*
 .DS_Store
 res-*/
+analysis/
+.Rproj.user

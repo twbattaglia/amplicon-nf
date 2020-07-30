@@ -239,12 +239,6 @@ process mapping {
         -o ${sample_id}-mapped.bam \
         ${sample_id}-mapped.sam
 
-        # Filter for mismatches
-        bamtools filter \
-        -tag XM:${params.mismatch} \
-        -in ${sample_id}-mapped.bam \
-        -out ${sample_id}-mapped-m${params.mismatch}.bam
-
         # Get counts from alignment
         pileup.sh \
         in=${sample_id}-mapped.bam \
@@ -350,12 +344,6 @@ process map_barcodes {
     samtools view -S -f bam \
     -o ${sample_id}-mapped.bam \
     ${sample_id}-mapped.sam
-
-    # Filter for mismatches
-    bamtools filter \
-    -tag XM:${params.mismatch} \
-    -in ${sample_id}-mapped.bam \
-    -out ${sample_id}-mapped-m${params.mismatch}.bam
 
     # Get counts from alignment
     pileup.sh \
