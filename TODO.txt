@@ -1,0 +1,5 @@
+- add barcode mode
+- add Illumina error correction step
+- add library (txt file) checking step
+- add library (fasta file) checking step
+- look into reducing PCR error 

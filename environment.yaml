@@ -11,3 +11,8 @@ dependencies:
   - seqkit=0.13.2
   - samtools=1.10
   - bbmap=38.86
+  - pip:
+    - cogent3
+    - seaborn
+    - biopython
+    - pandas

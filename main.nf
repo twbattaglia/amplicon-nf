@@ -137,21 +137,21 @@ process trim_filter {
     params.check == false
 
   script:
+    min_len = ( params.length - 3 )
     """
     trim_galore \
     --basename ${sample_id} \
     --output_dir . \
-    --length ${params.length} \
-    --max_length ${params.length} \
+    --length ${min_len} \
     --quality ${params.quality} \
     --fastqc \
     ${reads}
     """
 }
 
-// Create an index for mapping
-process create_index {
-  publishDir "$params.outdir/04_mapping/index", mode: 'copy'
+// Create library and check Hamming distance
+process check_library {
+  publishDir "$params.outdir/04_mapping/library", mode: 'copy'
   conda 'environment.yaml'
   cpus 2
 
@@ -159,32 +159,38 @@ process create_index {
     file(library) from library_ch
 
   output:
-    file ('ref/') optional true into bbmap_index
     file("library.fa") into library_fa
-
-  when:
-    params.check == false
+    file("library.txt") into library_txt
+    file("*.png") into library_figs
 
   script:
-  if( params.mapper == 'bowtie2' )
+    if( params.mode == 'library' )
       """
-      # Convert table to FASTA
-      seqkit tab2fx ${library} > library.fa
-      samtools faidx library.fa
-      """
-  else if( params.mapper == 'bbmap'  )
-      """
-      # Convert table to FASTA
-      seqkit tab2fx ${library} > library.fa
-      samtools faidx library.fa
+      # Verify the input table is correctly formatted (TODO)
 
-      # Make a BBmap index
-      bbmap.sh \
-      ref=library.fa \
-      -Xmx6g
+      # Keep only the 1st and 2nd column
+      cut -f 1,2 ${library} > library.txt
+
+      # Convert table to FASTA
+      seqkit tab2fx library.txt > library.fa
+
+      # Check the fasta library for distance issues
+      check_library.py -i library.fa
       """
-  else
-      error "Invalid alignment mode: ${params.mapper}"
+    else if ( params.mode == 'barcode' )
+      """
+      # Verify the input table is correctly formatted (TODO)
+
+      # Keep only the 1st and 3rd column
+      cut -f 1,3 ${library} > library.txt
+
+      # Convert table to FASTA
+      seqkit tab2fx library.txt > library.fa
+
+      # Check the fasta library
+      """
+    else
+        error "Invalid mode: ${params.mode}"
 }
 
 // Map reads directly to library
@@ -192,6 +198,7 @@ process mapping {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
   conda 'environment.yaml'
   cpus 4
 
@@ -200,9 +207,10 @@ process mapping {
     set sample_id, file(reads) from filter_fastq
 
   output:
-    file("${sample_id}-mapped.bam") into map_bam
     file("${sample_id}-counts.txt") into map_counts
+    file("${sample_id}-mapped.bam") into map_bam
     file("${sample_id}-report.txt") into map_report
+    file("${sample_id}-rpkm.txt") optional true into map_rpkm
 
   when:
     params.check == false
@@ -230,17 +238,45 @@ process mapping {
         outu=${sample_id}-unmapped.sam \
         ref=${library} \
         threads=${task.cpus} \
-        rpkm=${sample_id}-counts.txt \
+        rpkm=${sample_id}-rpkm.txt \
         statsfile=${sample_id}-report.txt \
         perfectmode=${params.perfect} \
         ambiguous=toss \
-        -Xmx6g
+        -Xmx6g \
+        nodisk
 
         # Convert to BAM
         samtools view -S -f bam \
         -o ${sample_id}-mapped.bam \
         ${sample_id}-mapped.sam
+
+        # Get counts from alignment
+        pileup.sh \
+        in=${sample_id}-mapped.bam \
+        out=${sample_id}-counts.txt
         """
     else
         error "Invalid alignment mode: ${params.mapper}"
+}
+
+// Merge the tables for downstream analysis
+process merge_tables {
+  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  conda 'environment.yaml'
+  cpus 2
+
+  input:
+    file(tables) from map_counts.collect()
+
+  output:
+    file("*")
+
+  when:
+    params.check == false
+
+  script:
+    """
+    merge_tables.py \
+    -i $tables
+    """
 }
