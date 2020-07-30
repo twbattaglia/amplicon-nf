@@ -373,3 +373,25 @@ process merge_tables_barcodes {
     -i $tables
     """
 }
+
+// Merge the tables for downstream analysis
+process merge_tables_library {
+  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  conda 'environment.yaml'
+  cpus 2
+
+  input:
+    file(tables) from map_counts.collect()
+
+  output:
+    file("*")
+
+  when:
+    params.check == false && params.mode == "library"
+
+  script:
+    """
+    merge_tables.py \
+    -i $tables
+    """
+}

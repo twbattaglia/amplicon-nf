@@ -9,15 +9,22 @@ nextflow run main.nf \
 --length 63 \
 --mode 'library' \
 --outdir 'res-library' \
--resume \
---check
+-resume
 
-# Run check to get initial quality results
+# Run check to get initial quality results (barcode 17)
 nextflow run main.nf \
---fastq 'testing/barcode/*.fq' \
---library 'testing/barcode/library.txt' \
+--fastq 'testing/barcode-n17/*.fq' \
+--library 'testing/barcode-n17/library.txt' \
 --length 17 \
---mismatch 2 \
 --mode 'barcode' \
---outdir 'res-barcode' \
+--outdir 'res-barcode-17' \
+-resume
+
+# Run check to get initial quality results (barcode 17)
+nextflow run main.nf \
+--fastq 'testing/barcode-n12/*.fq' \
+--library 'testing/barcode-n12/library.txt' \
+--length 12 \
+--mode 'barcode' \
+--outdir 'res-barcode-12' \
 -resume
