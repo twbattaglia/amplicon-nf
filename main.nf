@@ -15,7 +15,7 @@ def helpMessage() {
       --mode [str]                          Processing modes:
                                                 --mode 'library' | Specifies that the reads will be mapped directly to the library. Assumes a perfect match for quantification.
                                                 --mode 'barcode' | Specifies that the reads have barcodes at the end of the read that are used for quantification.
-      --length [int]                        Set the length of the amplicon for proper filtering and mapping.
+      --length [int]                        Will be the length of the oligo or legnth of the barcode attached.
       --outdir [file]                       Can be a local folder (will have egress fees) or GCP bucket folder.
 
     Optional arguments:
@@ -27,6 +27,7 @@ def helpMessage() {
                                                 --mapper 'bowtie2' | Default
                                                 --mapper 'bbmap'
       --perfect [bool]                      Option to set BBmap to only select perfect matches (Default = true)
+      --mismatch [int]                      Number of mismatches allowed. Filtered after bowtie2 alignment
     """.stripIndent()
 }
 
@@ -48,7 +49,7 @@ if(params.print){
       .fromPath(params.fastq)
       .map { file -> tuple(file.simpleName, file) }
       .ifEmpty { error "Cannot find any reads matching: ${params.fastq}" }
-      .into { fastq_ch1; fastq_ch2 }
+      .into { fastq_ch1; fastq_ch2 ; fastq_ch3}
 }
 
 // Check if required arguments are given
@@ -134,7 +135,7 @@ process trim_filter {
     file("${sample_id}*.{html,zip}") into fastqc_filter
 
   when:
-    params.check == false
+    params.check == false & params.mode == "library"
 
   script:
     min_len = ( params.length - 3 )
@@ -159,8 +160,8 @@ process check_library {
     file(library) from library_ch
 
   output:
-    file("library.fa") into library_fa
-    file("library.txt") into library_txt
+    file "library-oligos.fa" into library_fa_ch1,library_fa_ch2
+    file("library-oligos.txt") into library_txt
     file("*.png") into library_figs
 
   script:
@@ -169,25 +170,27 @@ process check_library {
       # Verify the input table is correctly formatted (TODO)
 
       # Keep only the 1st and 2nd column
-      cut -f 1,2 ${library} > library.txt
+      cut -f 1,2 ${library} > library-oligos.txt
 
       # Convert table to FASTA
-      seqkit tab2fx library.txt > library.fa
+      seqkit tab2fx library-oligos.txt > library-oligos.fa
 
       # Check the fasta library for distance issues
-      check_library.py -i library.fa
+      check_library.py -i library-oligos.fa
+
       """
     else if ( params.mode == 'barcode' )
       """
       # Verify the input table is correctly formatted (TODO)
 
       # Keep only the 1st and 3rd column
-      cut -f 1,3 ${library} > library.txt
+      cut -f 1,3 ${library} > library-oligos.txt
 
       # Convert table to FASTA
-      seqkit tab2fx library.txt > library.fa
+      seqkit tab2fx library-oligos.txt > library-oligos.fa
 
       # Check the fasta library
+      check_library.py -i library-oligos.fa
       """
     else
         error "Invalid mode: ${params.mode}"
@@ -198,12 +201,11 @@ process mapping {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
   conda 'environment.yaml'
   cpus 4
 
   input:
-    file(library) from library_fa
+    file(library) from library_fa_ch1
     set sample_id, file(reads) from filter_fastq
 
   output:
@@ -213,7 +215,7 @@ process mapping {
     file("${sample_id}-rpkm.txt") optional true into map_rpkm
 
   when:
-    params.check == false
+    params.check == false | params.mode == "library"
 
   script:
     if( params.mapper == 'bowtie2' )
@@ -228,7 +230,25 @@ process mapping {
         bowtie2 \
         -x genome.index \
         -U ${reads} \
-        --norc | samtools view -bS - > {sample_id}.bam
+        -S ${sample_id}-mapped.sam \
+        --very-sensitive \
+        --norc 2> ${sample_id}-report.txt
+
+        # Convert to BAM
+        samtools view -S -f bam \
+        -o ${sample_id}-mapped.bam \
+        ${sample_id}-mapped.sam
+
+        # Filter for mismatches
+        bamtools filter \
+        -tag XM:${params.mismatch} \
+        -in ${sample_id}-mapped.bam \
+        -out ${sample_id}-mapped-m${params.mismatch}.bam
+
+        # Get counts from alignment
+        pileup.sh \
+        in=${sample_id}-mapped.bam \
+        out=${sample_id}-counts.txt
         """
     else if( params.mapper == 'bbmap'  )
         """
@@ -260,19 +280,104 @@ process mapping {
 }
 
 // Merge the tables for downstream analysis
-process merge_tables {
+process extract_barcodes {
+  publishDir "$params.outdir/03_extract/$sample_id", mode: 'copy'
+  conda 'environment.yaml'
+  cpus 2
+
+  input:
+    file(library) from library_fa_ch2
+    set sample_id, file(reads) from fastq_ch3
+
+  output:
+    set val(sample_id), file("${sample_id}-split.fq") into extract_fastq
+    file("${sample_id}*.{html,zip}") into fastqc_extract
+
+  when:
+    params.check == false && params.mode == "barcode"
+
+  script:
+    """
+    # Extract the last N sequences (barcodes)
+    cat ${reads} | seqkit subseq -r -${params.length}:-1 > ${sample_id}-split.fq
+
+    # Run FastQC on decontaminated data
+    fastqc \
+    --outdir . \
+    --quiet \
+    --threads ${task.cpus} \
+    ${sample_id}-split.fq
+    """
+}
+
+// Merge the tables for downstream analysis
+process map_barcodes {
+  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
+  publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
+  publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  conda 'environment.yaml'
+  cpus 2
+
+  input:
+    file(library) from library_fa_ch2
+    set sample_id, file(reads) from extract_fastq
+
+  output:
+    file("${sample_id}-counts.txt") into barcode_counts
+    file("${sample_id}-mapped.bam") into barcode_bam
+    file("${sample_id}-report.txt") into barcode_report
+
+  when:
+    params.check == false && params.mode == "barcode"
+
+  script:
+    """
+    # Make small bowtie2 index
+    bowtie2-build \
+    --threads ${task.cpus} \
+    ${library} \
+    genome.index
+
+    # Perform alignment
+    bowtie2 \
+    -x genome.index \
+    -U ${reads} \
+    -S ${sample_id}-mapped.sam \
+    --very-sensitive \
+    --norc 2> ${sample_id}-report.txt
+
+    # Convert to BAM
+    samtools view -S -f bam \
+    -o ${sample_id}-mapped.bam \
+    ${sample_id}-mapped.sam
+
+    # Filter for mismatches
+    bamtools filter \
+    -tag XM:${params.mismatch} \
+    -in ${sample_id}-mapped.bam \
+    -out ${sample_id}-mapped-m${params.mismatch}.bam
+
+    # Get counts from alignment
+    pileup.sh \
+    in=${sample_id}-mapped.bam \
+    out=${sample_id}-counts.txt
+    """
+}
+
+// Merge the tables for downstream analysis
+process merge_tables_barcodes {
   publishDir "$params.outdir/04_mapping/", mode: 'copy'
   conda 'environment.yaml'
   cpus 2
 
   input:
-    file(tables) from map_counts.collect()
+    file(tables) from barcode_counts.collect()
 
   output:
     file("*")
 
   when:
-    params.check == false
+    params.check == false && params.mode == "barcode"
 
   script:
     """

@@ -5,3 +5,4 @@ results/
 .nextflow*
 ._*
 .DS_Store
+res-*/

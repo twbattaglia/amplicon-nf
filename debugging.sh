@@ -4,14 +4,20 @@
 
 # Run check to get initial quality results
 nextflow run main.nf \
---fastq 'testing/fastq/*.fq' \
---library 'testing/chiara-library.txt' \
+--fastq 'testing/library/*.fq' \
+--library 'testing/library/library.txt' \
 --length 63 \
+--mode 'library' \
+--outdir 'res-library' \
 -resume \
 --check
 
-# Run full pipeline with library-oriented
+# Run check to get initial quality results
 nextflow run main.nf \
---fastq 'testing/fastq/*.fq' \
---length 63 \
+--fastq 'testing/barcode/*.fq' \
+--library 'testing/barcode/library.txt' \
+--length 17 \
+--mismatch 2 \
+--mode 'barcode' \
+--outdir 'res-barcode' \
 -resume
