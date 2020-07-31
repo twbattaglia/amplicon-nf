@@ -128,7 +128,7 @@ process trim_filter {
     set sample_id, file(reads) from decontam_fastq
 
   output:
-    set val(sample_id), file("${sample_id}_trimmed.fq.gz") into filter_fastq
+    set val(sample_id), file("${sample_id}_trimmed-right.fq.gz") into filter_fastq
     file("${sample_id}*.{html,zip}") into fastqc_filter
 
   when:
@@ -136,6 +136,7 @@ process trim_filter {
 
   script:
     min_len = ( params.length - 3 )
+    trim_len = ( params.length - 1 )
     """
     trim_galore \
     --basename ${sample_id} \
@@ -144,6 +145,12 @@ process trim_filter {
     --quality ${params.quality} \
     --fastqc \
     ${reads}
+
+    # Add maximum read cutoff
+    reformat.sh \
+    in=${sample_id}_trimmed.fq.gz \
+    out=${sample_id}_trimmed-right.fq.gz \
+    forcetrimright=${trim_len}
     """
 }
 
@@ -248,7 +255,8 @@ process mapping {
         ref=${library} \
         threads=${task.cpus} \
         statsfile=${sample_id}-report.txt \
-        perfectmode=${params.perfect} \
+        vslow \
+        perfectmode \
         ambiguous=toss \
         -Xmx6g \
         nodisk
