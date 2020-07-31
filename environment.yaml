@@ -12,6 +12,7 @@ dependencies:
   - seqkit
   - samtools
   - bbmap
+  - muscle
   - pip
   - pip:
     - cogent3

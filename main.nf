@@ -165,6 +165,7 @@ process check_library {
   output:
     file "library-oligos.fa" into library_fa_ch1,library_fa_ch2
     file("library-oligos.txt") into library_txt
+    file("library-oligos.aln") into library_aln
     file("*.png") into library_figs
 
   script:
@@ -177,6 +178,9 @@ process check_library {
 
       # Convert table to FASTA
       seqkit tab2fx library-oligos.txt > library-oligos.fa
+
+      # Run MUSCLE to create MSA
+      muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library for distance issues
       check_library.py -i library-oligos.fa
@@ -191,6 +195,9 @@ process check_library {
 
       # Convert table to FASTA
       seqkit tab2fx library-oligos.txt > library-oligos.fa
+
+      # Run MUSCLE to create MSA
+      muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library
       check_library.py -i library-oligos.fa
