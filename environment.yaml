@@ -12,6 +12,7 @@ dependencies:
   - seqkit
   - samtools
   - bbmap
+  - pip
   - pip:
     - cogent3
     - seaborn
