@@ -58,7 +58,7 @@ if (params.length == 0) {
 }
 
 // Gather the adapters/vector file
-univec_ch = file(params.univec)
+univec_ch = file("$baseDir/database/UniVec.fa")
 if (univec_ch.isEmpty()) {exit 1, "File ${univec_ch.getName()} is empty!"}
 
 // Check if library is given properly
@@ -69,7 +69,6 @@ if (library_ch.isEmpty()) {exit 1, "File ${library_ch.getName()} is empty!"}
 process fastqc {
   publishDir "$params.outdir/01_quality/$sample_id", mode: 'copy'
   cpus 2
-  conda 'environment.yaml'
 
   input:
     set sample_id, file(reads) from fastq_ch1
@@ -92,7 +91,6 @@ process fastqc {
 process remove_vector {
   publishDir "$params.outdir/02_vector/$sample_id", mode: 'copy'
   cpus 2
-  conda 'environment.yaml'
 
   input:
     set sample_id, file(reads) from fastq_ch2
@@ -124,7 +122,6 @@ process remove_vector {
 // Remove low quality reads from the decontaminated sequences
 process trim_filter {
   publishDir "$params.outdir/03_filter/$sample_id", mode: 'copy'
-  conda 'environment.yaml'
   cpus 2
 
   input:
@@ -153,7 +150,6 @@ process trim_filter {
 // Create library and check Hamming distance
 process check_library {
   publishDir "$params.outdir/04_mapping/library", mode: 'copy'
-  conda 'environment.yaml'
   cpus 2
 
   input:
@@ -201,7 +197,6 @@ process mapping {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  conda 'environment.yaml'
   cpus 4
 
   input:
@@ -252,7 +247,6 @@ process mapping {
         outu=${sample_id}-unmapped.sam \
         ref=${library} \
         threads=${task.cpus} \
-        rpkm=${sample_id}-rpkm.txt \
         statsfile=${sample_id}-report.txt \
         perfectmode=${params.perfect} \
         ambiguous=toss \
@@ -276,7 +270,6 @@ process mapping {
 // Merge the tables for downstream analysis
 process extract_barcodes {
   publishDir "$params.outdir/03_extract/$sample_id", mode: 'copy'
-  conda 'environment.yaml'
   cpus 2
 
   input:
@@ -309,7 +302,6 @@ process map_barcodes {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  conda 'environment.yaml'
   cpus 2
 
   input:
@@ -325,37 +317,63 @@ process map_barcodes {
     params.check == false && params.mode == "barcode"
 
   script:
-    """
-    # Make small bowtie2 index
-    bowtie2-build \
-    --threads ${task.cpus} \
-    ${library} \
-    genome.index
+  if( params.mapper == 'bowtie2' )
+      """
+      # Make small bowtie2 index
+      bowtie2-build \
+      --threads ${task.cpus} \
+      ${library} \
+      genome.index
 
-    # Perform alignment
-    bowtie2 \
-    -x genome.index \
-    -U ${reads} \
-    -S ${sample_id}-mapped.sam \
-    --very-sensitive \
-    --norc 2> ${sample_id}-report.txt
+      # Perform alignment
+      bowtie2 \
+      -x genome.index \
+      -U ${reads} \
+      -S ${sample_id}-mapped.sam \
+      --very-sensitive \
+      --norc 2> ${sample_id}-report.txt
 
-    # Convert to BAM
-    samtools view -S -f bam \
-    -o ${sample_id}-mapped.bam \
-    ${sample_id}-mapped.sam
+      # Convert to BAM
+      samtools view -S -f bam \
+      -o ${sample_id}-mapped.bam \
+      ${sample_id}-mapped.sam
 
-    # Get counts from alignment
-    pileup.sh \
-    in=${sample_id}-mapped.bam \
-    out=${sample_id}-counts.txt
-    """
+      # Get counts from alignment
+      pileup.sh \
+      in=${sample_id}-mapped.bam \
+      out=${sample_id}-counts.txt
+      """
+  else if( params.mapper == 'bbmap'  )
+      """
+      bbmap.sh \
+      in=${reads} \
+      out=${sample_id}-mapped.sam \
+      outu=${sample_id}-unmapped.sam \
+      ref=${library} \
+      threads=${task.cpus} \
+      statsfile=${sample_id}-report.txt \
+      perfectmode=${params.perfect} \
+      ambiguous=toss \
+      -Xmx6g \
+      nodisk
+
+      # Convert to BAM
+      samtools view -S -f bam \
+      -o ${sample_id}-mapped.bam \
+      ${sample_id}-mapped.sam
+
+      # Get counts from alignment
+      pileup.sh \
+      in=${sample_id}-mapped.bam \
+      out=${sample_id}-counts.txt
+      """
+  else
+      error "Invalid alignment mode: ${params.mapper}"
 }
 
 // Merge the tables for downstream analysis
 process merge_tables_barcodes {
   publishDir "$params.outdir/04_mapping/", mode: 'copy'
-  conda 'environment.yaml'
   cpus 2
 
   input:
@@ -377,7 +395,6 @@ process merge_tables_barcodes {
 // Merge the tables for downstream analysis
 process merge_tables_library {
   publishDir "$params.outdir/04_mapping/", mode: 'copy'
-  conda 'environment.yaml'
   cpus 2
 
   input:
