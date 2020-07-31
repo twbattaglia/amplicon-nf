@@ -146,7 +146,7 @@ process trim_filter {
       forcetrimright=${trim_len}
 
       # Error correction using BFC
-      bfc -t 16 ${sample_id}-right.fq.gz | gzip -1 > ${sample_id}-right-cor.fq.gz
+      #bfc -t 16 ${sample_id}-right.fq.gz | gzip -1 > ${sample_id}-right-cor.fq.gz
 
       # Run FastQC
       fastqc \
@@ -171,7 +171,7 @@ process trim_filter {
       forcetrimright=${trim_len}
 
       # Error correction using BFC
-      bfc -t 16 ${sample_id}_trimmed-right.fq.gz | gzip -1 > ${sample_id}_trimmed-right-cor.fq.gz
+      #bfc -t 16 ${sample_id}_trimmed-right.fq.gz | gzip -1 > ${sample_id}_trimmed-right-cor.fq.gz
 
       # Run FastQC
       fastqc \
@@ -180,8 +180,6 @@ process trim_filter {
       --threads ${task.cpus} \
       ${sample_id}_trimmed-right-cor.fq.gz
       """
-
-
 }
 
 // Create library and check Hamming distance
