@@ -26,8 +26,8 @@ def helpMessage() {
       --mapper [str]                        Select an alignment tool when mapping reads to library. Can be of :
                                                 --mapper 'bowtie2' | Default
                                                 --mapper 'bbmap'
-      --perfect [bool]                      Option to set BBmap to only select perfect matches (Default = true)
-      --mismatch [int]                      Number of mismatches allowed. Filtered after bowtie2 alignment
+      --skip_filter [bool]                  Option to skip Cutadapt quality filtering. (Default = False)
+
     """.stripIndent()
 }
 
@@ -128,7 +128,7 @@ process trim_filter {
     set sample_id, file(reads) from decontam_fastq
 
   output:
-    set val(sample_id), file("${sample_id}_trimmed-right.fq.gz") into filter_fastq
+    set val(sample_id), file("${sample_id}*-right.fq.gz") into filter_fastq
     file("${sample_id}*.{html,zip}") into fastqc_filter
 
   when:
@@ -137,21 +137,45 @@ process trim_filter {
   script:
     min_len = ( params.length - 3 )
     trim_len = ( params.length - 1 )
-    """
-    trim_galore \
-    --basename ${sample_id} \
-    --output_dir . \
-    --length ${min_len} \
-    --quality ${params.quality} \
-    --fastqc \
-    ${reads}
+    if( params.skip_filter == true  )
+      """
+      # Add maximum read cutoff
+      reformat.sh \
+      in=${reads} \
+      out=${sample_id}-right.fq.gz \
+      forcetrimright=${trim_len}
 
-    # Add maximum read cutoff
-    reformat.sh \
-    in=${sample_id}_trimmed.fq.gz \
-    out=${sample_id}_trimmed-right.fq.gz \
-    forcetrimright=${trim_len}
-    """
+      # Run FastQC
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}_trimmed-right.fq.gz
+      """
+    else
+      """
+      # Run Cutadapt
+      cutadapt \
+      --output ${sample_id}_trimmed.fq.gz \
+      --minimum-length ${min_len} \
+      --quality-cutoff ${params.quality} \
+      ${reads}
+
+      # Add maximum read cutoff
+      reformat.sh \
+      in=${sample_id}_trimmed.fq.gz \
+      out=${sample_id}_trimmed-right.fq.gz \
+      forcetrimright=${trim_len}
+
+      # Run FastQC
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}_trimmed-right.fq.gz
+      """
+
+
 }
 
 // Create library and check Hamming distance
@@ -165,7 +189,7 @@ process check_library {
   output:
     file "library-oligos.fa" into library_fa_ch1,library_fa_ch2
     file("library-oligos.txt") into library_txt
-    file("library-oligos.aln") into library_aln
+    //file("library-oligos.aln") into library_aln
     file("*.png") into library_figs
 
   script:
@@ -180,7 +204,7 @@ process check_library {
       seqkit tab2fx library-oligos.txt > library-oligos.fa
 
       # Run MUSCLE to create MSA
-      muscle -in library-oligos.fa -out library-oligos.aln
+      #muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library for distance issues
       check_library.py -i library-oligos.fa
@@ -197,7 +221,7 @@ process check_library {
       seqkit tab2fx library-oligos.txt > library-oligos.fa
 
       # Run MUSCLE to create MSA
-      muscle -in library-oligos.fa -out library-oligos.aln
+      #muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library
       check_library.py -i library-oligos.fa
