@@ -249,7 +249,8 @@ process check_library {
 
 // Map reads directly to library
 process mapping {
-  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
+  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*-mapped.bam'
+  publishDir "$params.outdir/04_mapping/bam/ubam", mode: 'copy', pattern: '*-unmapped.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
   publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
@@ -263,6 +264,7 @@ process mapping {
   output:
     file("${sample_id}-counts.txt") into map_counts
     file("${sample_id}-mapped.bam") into map_bam
+    file("${sample_id}-unmapped.bam") into map_ubam
     file("${sample_id}-report.txt") into map_report
     file("${sample_id}-rpkm.txt") optional true into map_rpkm
     file("${sample_id}-bamstats.txt") into map_bamstats
@@ -290,6 +292,11 @@ process mapping {
     samtools view -S -f bam \
     -o ${sample_id}-mapped.bam \
     ${sample_id}-mapped.sam
+
+    # Convert to BAM
+    samtools view -S -f bam \
+    -o ${sample_id}-unmapped.bam \
+    ${sample_id}-unmapped.sam
 
     # Get counts from alignment
     pileup.sh \
