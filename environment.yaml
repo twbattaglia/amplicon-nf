@@ -14,6 +14,7 @@ dependencies:
   - bbmap
   - muscle
   - bfc
+  - picard
   - pip
   - pip:
     - cogent3

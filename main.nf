@@ -128,7 +128,7 @@ process trim_filter {
     set sample_id, file(reads) from decontam_fastq
 
   output:
-    set val(sample_id), file("${sample_id}*right.fq.gz") into filter_fastq
+    set val(sample_id), file("${sample_id}_trim-right*.fq.gz") into filter_fastq
     file("${sample_id}*.{html,zip}") into fastqc_filter
 
   when:
@@ -137,48 +137,63 @@ process trim_filter {
   script:
     min_len = ( params.length - 3 )
     trim_len = ( params.length - 1 )
-    if( params.skip_filter == true  )
-      """
-      # Add maximum read cutoff
-      reformat.sh \
-      in=${reads} \
-      out=${sample_id}-right.fq.gz \
-      forcetrimright=${trim_len}
-
-      # Error correction using BFC
-      #bfc -t 16 ${sample_id}-right.fq.gz | gzip -1 > ${sample_id}-right-cor.fq.gz
-
-      # Run FastQC
-      fastqc \
-      --outdir . \
-      --quiet \
-      --threads ${task.cpus} \
-      ${sample_id}-right.fq.gz
-      """
-    else
+    if( params.dedup == true  )
       """
       # Run Cutadapt
       cutadapt \
-      --output ${sample_id}_trimmed.fq.gz \
+      --output ${sample_id}_trim.fq.gz \
       --minimum-length ${min_len} \
       --quality-cutoff ${params.quality} \
       ${reads}
 
       # Add maximum read cutoff
       reformat.sh \
-      in=${sample_id}_trimmed.fq.gz \
-      out=${sample_id}_trimmed-right.fq.gz \
+      in=${sample_id}_trim.fq.gz \
+      out=${sample_id}_trim-right.fq.gz \
       forcetrimright=${trim_len}
-
-      # Error correction using BFC
-      #bfc -t 16 ${sample_id}_trimmed-right.fq.gz | gzip -1 > ${sample_id}_trimmed-right-cor.fq.gz
 
       # Run FastQC
       fastqc \
       --outdir . \
       --quiet \
       --threads ${task.cpus} \
-      ${sample_id}_trimmed-right.fq.gz
+      ${sample_id}_trim-right.fq.gz
+
+      # Mark and remove optical duplicates
+      clumpify.sh \
+      in=${sample_id}_trim-right.fq.gz \
+      out=${sample_id}_trim-right-clump.fq.gz \
+      dedupe=t \
+      optical=t
+
+      # Run FastQC
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}_trim-right-clump.fq.gz
+      """
+    else
+      """
+      # Run Cutadapt
+      cutadapt \
+      --output ${sample_id}_trim.fq.gz \
+      --minimum-length ${min_len} \
+      --quality-cutoff ${params.quality} \
+      ${reads}
+
+      # Add maximum read cutoff
+      reformat.sh \
+      in=${sample_id}_trim.fq.gz \
+      out=${sample_id}_trim-right.fq.gz \
+      forcetrimright=${trim_len}
+
+      # Run FastQC
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}_trim-right.fq.gz
       """
 }
 
@@ -239,6 +254,7 @@ process mapping {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
   cpus 4
 
   input:
@@ -287,6 +303,7 @@ process mapping {
         in=${reads} \
         out=${sample_id}-mapped.sam \
         outu=${sample_id}-unmapped.sam \
+        rpkm=${sample_id}-rpkm.txt \
         ref=${library} \
         threads=${task.cpus} \
         statsfile=${sample_id}-report.txt \
