@@ -128,7 +128,7 @@ process trim_filter {
     set sample_id, file(reads) from decontam_fastq
 
   output:
-    set val(sample_id), file("${sample_id}*-cor.fq.gz") into filter_fastq
+    set val(sample_id), file("${sample_id}*right.fq.gz") into filter_fastq
     file("${sample_id}*.{html,zip}") into fastqc_filter
 
   when:
@@ -153,7 +153,7 @@ process trim_filter {
       --outdir . \
       --quiet \
       --threads ${task.cpus} \
-      ${sample_id}-right-cor.fq.gz
+      ${sample_id}-right.fq.gz
       """
     else
       """
@@ -178,7 +178,7 @@ process trim_filter {
       --outdir . \
       --quiet \
       --threads ${task.cpus} \
-      ${sample_id}_trimmed-right-cor.fq.gz
+      ${sample_id}_trimmed-right.fq.gz
       """
 }
 
