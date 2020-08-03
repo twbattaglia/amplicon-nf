@@ -23,11 +23,10 @@ def helpMessage() {
       --check [bool]                        Only run the first few steps to get a sense of the sequence data distribution. (Default = False)
       --quality [int]                       Minimum base quality score required when filtering with Cutadapt. (Default = 20)
       --univec [file]                       Path to UniVec database in FASTQ format. (Default is taken from within pipeline)
-      --mapper [str]                        Select an alignment tool when mapping reads to library. Can be of :
-                                                --mapper 'bowtie2' | Default
-                                                --mapper 'bbmap'
-      --skip_filter [bool]                  Option to skip Cutadapt quality filtering. (Default = False)
-
+      --dedeup [bool]                       Option to enable removal of optical/PCR duplicates (Default = False)
+      --mapper [str]                        Select an alignment tool when mapping reads to barcodes. Can be of :
+                                                --mapper 'bowtie2'
+                                                --mapper 'bbmap' | Default
     """.stripIndent()
 }
 
@@ -271,60 +270,31 @@ process mapping {
     params.check == false | params.mode == "library"
 
   script:
-    if( params.mapper == 'bowtie2' )
-        """
-        # Make small bowtie2 index
-        bowtie2-build \
-        --threads ${task.cpus} \
-        ${library} \
-        genome.index
+    """
+    bbmap.sh \
+    in=${reads} \
+    out=${sample_id}-mapped.sam \
+    outu=${sample_id}-unmapped.sam \
+    rpkm=${sample_id}-rpkm.txt \
+    ref=${library} \
+    threads=${task.cpus} \
+    statsfile=${sample_id}-report.txt \
+    vslow \
+    perfectmode \
+    ambiguous=toss \
+    -Xmx6g \
+    nodisk
 
-        # Perform alignment
-        bowtie2 \
-        -x genome.index \
-        -U ${reads} \
-        -S ${sample_id}-mapped.sam \
-        --very-sensitive \
-        --norc 2> ${sample_id}-report.txt
+    # Convert to BAM
+    samtools view -S -f bam \
+    -o ${sample_id}-mapped.bam \
+    ${sample_id}-mapped.sam
 
-        # Convert to BAM
-        samtools view -S -f bam \
-        -o ${sample_id}-mapped.bam \
-        ${sample_id}-mapped.sam
-
-        # Get counts from alignment
-        pileup.sh \
-        in=${sample_id}-mapped.bam \
-        out=${sample_id}-counts.txt
-        """
-    else if( params.mapper == 'bbmap'  )
-        """
-        bbmap.sh \
-        in=${reads} \
-        out=${sample_id}-mapped.sam \
-        outu=${sample_id}-unmapped.sam \
-        rpkm=${sample_id}-rpkm.txt \
-        ref=${library} \
-        threads=${task.cpus} \
-        statsfile=${sample_id}-report.txt \
-        vslow \
-        perfectmode \
-        ambiguous=toss \
-        -Xmx6g \
-        nodisk
-
-        # Convert to BAM
-        samtools view -S -f bam \
-        -o ${sample_id}-mapped.bam \
-        ${sample_id}-mapped.sam
-
-        # Get counts from alignment
-        pileup.sh \
-        in=${sample_id}-mapped.bam \
-        out=${sample_id}-counts.txt
-        """
-    else
-        error "Invalid alignment mode: ${params.mapper}"
+    # Get counts from alignment
+    pileup.sh \
+    in=${sample_id}-mapped.bam \
+    out=${sample_id}-counts.txt
+    """
 }
 
 // Merge the tables for downstream analysis
@@ -448,7 +418,7 @@ process merge_tables_barcodes {
   script:
     """
     merge_tables.py \
-    -i $tables
+    -c $tables
     """
 }
 
@@ -469,6 +439,6 @@ process merge_tables_library {
   script:
     """
     merge_tables.py \
-    -i $tables
+    -c $tables
     """
 }
