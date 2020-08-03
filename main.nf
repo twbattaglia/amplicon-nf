@@ -15,18 +15,21 @@ def helpMessage() {
       --mode [str]                          Processing modes:
                                                 --mode 'library' | Specifies that the reads will be mapped directly to the library. Assumes a perfect match for quantification.
                                                 --mode 'barcode' | Specifies that the reads have barcodes at the end of the read that are used for quantification.
-      --length [int]                        Will be the length of the oligo or legnth of the barcode attached.
-      --outdir [file]                       Can be a local folder (will have egress fees) or GCP bucket folder.
+      --length [int]                        Will be the length of the oligo or length of the barcode attached.
+      --outdir [file]                       Local directory to store results
 
     Optional arguments:
       --print [bool]                        Option to print channel of files without running full pipeline (Default = False)
       --check [bool]                        Only run the first few steps to get a sense of the sequence data distribution. (Default = False)
-      --quality [int]                       Minimum base quality score required when filtering with Cutadapt. (Default = 20)
+      --quality [int]                       Minimum base quality score required when filtering with Cutadapt. (Default = 10)
       --univec [file]                       Path to UniVec database in FASTQ format. (Default is taken from within pipeline)
       --dedeup [bool]                       Option to enable removal of optical/PCR duplicates (Default = False)
+      --perfect [bool]                      Option to enable perfect matching with BBMap (Default = False)
+      --semiperfect [bool]                  Option to enable semi-perfect matching with BBMap (Default = False)
       --mapper [str]                        Select an alignment tool when mapping reads to barcodes. Can be of :
-                                                --mapper 'bowtie2'
                                                 --mapper 'bbmap' | Default
+                                                --mapper 'bowtie2'
+
     """.stripIndent()
 }
 
@@ -148,7 +151,7 @@ process trim_filter {
       # Add maximum read cutoff
       reformat.sh \
       in=${sample_id}_trim.fq.gz \
-      out=${sample_id}_trim-right.fq.gz \
+      out=${sample_id}-temp-right.fq.gz \
       forcetrimright=${trim_len}
 
       # Run FastQC
@@ -156,11 +159,11 @@ process trim_filter {
       --outdir . \
       --quiet \
       --threads ${task.cpus} \
-      ${sample_id}_trim-right.fq.gz
+      ${sample_id}-temp-right.fq.gz
 
       # Mark and remove optical duplicates
       clumpify.sh \
-      in=${sample_id}_trim-right.fq.gz \
+      in=${sample_id}-temp-right.fq.gz \
       out=${sample_id}_trim-right-clump.fq.gz \
       dedupe=t \
       optical=t
@@ -273,6 +276,8 @@ process mapping {
     params.check == false | params.mode == "library"
 
   script:
+    def perfect = params.perfect ? 'perfectmode' : ''
+    def semiperfect = params.semiperfect ? 'semiperfectmode' : ''
     """
     bbmap.sh \
     in=${reads} \
@@ -282,8 +287,9 @@ process mapping {
     ref=${library} \
     threads=${task.cpus} \
     statsfile=${sample_id}-report.txt \
+    $perfect \
+    $semiperfect \
     vslow \
-    perfectmode \
     ambiguous=toss \
     -Xmx6g \
     nodisk
@@ -398,7 +404,6 @@ process map_barcodes {
       ref=${library} \
       threads=${task.cpus} \
       statsfile=${sample_id}-report.txt \
-      perfectmode=${params.perfect} \
       ambiguous=toss \
       -Xmx6g \
       nodisk
@@ -451,7 +456,7 @@ process merge_tables_barcodes {
 
 // Merge the tables for downstream analysis
 process merge_tables_library {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy', pattern: "merged-counts.txt"
+  publishDir "$params.outdir/04_mapping/", mode: 'copy', pattern: "merged-counts*"
   publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: "multiqc/*"
   cpus 2
 
@@ -461,6 +466,7 @@ process merge_tables_library {
 
   output:
     file("merged-counts.txt") into merged_counts
+    file("merged-counts-plot.png") into merged_counts_plot
     file("multiqc/*") into multiqc
 
   when:
