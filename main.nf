@@ -226,7 +226,6 @@ process check_library {
 
       # Check the fasta library for distance issues
       check_library.py -i library-oligos.fa
-
       """
     else if ( params.mode == 'barcode' )
       """
@@ -254,6 +253,7 @@ process mapping {
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
   publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
+  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 4
 
   input:
@@ -265,6 +265,7 @@ process mapping {
     file("${sample_id}-mapped.bam") into map_bam
     file("${sample_id}-report.txt") into map_report
     file("${sample_id}-rpkm.txt") optional true into map_rpkm
+    file("${sample_id}-bamstats.txt") into map_bamstats
 
   when:
     params.check == false | params.mode == "library"
@@ -294,6 +295,9 @@ process mapping {
     pileup.sh \
     in=${sample_id}-mapped.bam \
     out=${sample_id}-counts.txt
+
+    # Basic BAM statsfile
+    samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
     """
 }
 
@@ -332,6 +336,7 @@ process map_barcodes {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 2
 
   input:
@@ -342,6 +347,7 @@ process map_barcodes {
     file("${sample_id}-counts.txt") into barcode_counts
     file("${sample_id}-mapped.bam") into barcode_bam
     file("${sample_id}-report.txt") into barcode_report
+    file("${sample_id}-bamstats.txt") into barcode_bamstats
 
   when:
     params.check == false && params.mode == "barcode"
@@ -372,6 +378,9 @@ process map_barcodes {
       pileup.sh \
       in=${sample_id}-mapped.bam \
       out=${sample_id}-counts.txt
+
+      # Basic BAM statsfile
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
       """
   else if( params.mapper == 'bbmap'  )
       """
@@ -396,6 +405,9 @@ process map_barcodes {
       pileup.sh \
       in=${sample_id}-mapped.bam \
       out=${sample_id}-counts.txt
+
+      # Basic BAM statsfile
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
       """
   else
       error "Invalid alignment mode: ${params.mapper}"
@@ -408,6 +420,7 @@ process merge_tables_barcodes {
 
   input:
     file(tables) from barcode_counts.collect()
+    file(stats) from barcode_bamstats.collect()
 
   output:
     file("*")
@@ -417,28 +430,45 @@ process merge_tables_barcodes {
 
   script:
     """
+    # Merge count tables
     merge_tables.py \
-    -c $tables
+    -i $tables
+
+    # Run MultiQC
+    mkdir -p multiqc/
+    multiqc \
+    --outdir multiqc \
+    $stats
     """
 }
 
 // Merge the tables for downstream analysis
 process merge_tables_library {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  publishDir "$params.outdir/04_mapping/", mode: 'copy', pattern: "merged-counts.txt"
+  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: "multiqc/*"
   cpus 2
 
   input:
     file(tables) from map_counts.collect()
+    file(stats) from map_bamstats.collect()
 
   output:
-    file("*")
+    file("merged-counts.txt") into merged_counts
+    file("multiqc/*") into multiqc
 
   when:
     params.check == false && params.mode == "library"
 
   script:
     """
+    # Merge count tables
     merge_tables.py \
-    -c $tables
+    -i $tables
+
+    # Run MultiQC
+    mkdir -p multiqc/
+    multiqc \
+    --outdir multiqc \
+    $stats
     """
 }

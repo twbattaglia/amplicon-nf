@@ -15,6 +15,7 @@ dependencies:
   - muscle
   - bfc
   - picard
+  - bamutil
   - pip
   - pip:
     - cogent3
