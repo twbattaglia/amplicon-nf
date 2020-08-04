@@ -444,9 +444,8 @@ process merge_tables_barcodes {
   cpus 2
 
   input:
-    file(rpkm) from map_rpkm.collect()
-    file(seal) from map_seal.collect()
-    file(stats) from map_bamstats.collect()
+    file(counts) from barcode_counts.collect()
+    file(stats) from barcode_bamstats.collect()
 
   output:
     file("*")
@@ -475,6 +474,7 @@ process merge_tables_library {
 
   input:
     file(rpkm) from map_rpkm.collect()
+    file(counts) from map_counts.collect()
     file(seal) from map_seal.collect()
     file(stats) from map_bamstats.collect()
 
