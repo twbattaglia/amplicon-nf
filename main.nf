@@ -281,6 +281,9 @@ process mapping {
     def perfect = params.perfect ? 'perfectmode' : ''
     def semiperfect = params.semiperfect ? 'semiperfectmode' : ''
     """
+    # Error correction
+    #bfc -t 8 ${reads} | gzip -1 > ${reads}-corrected.fq.gz
+
     # Run BBmap
     bbmap.sh \
     in=${reads} \
@@ -441,8 +444,9 @@ process merge_tables_barcodes {
   cpus 2
 
   input:
-    file(tables) from barcode_counts.collect()
-    file(stats) from barcode_bamstats.collect()
+    file(rpkm) from map_rpkm.collect()
+    file(seal) from map_seal.collect()
+    file(stats) from map_bamstats.collect()
 
   output:
     file("*")
@@ -453,8 +457,7 @@ process merge_tables_barcodes {
   script:
     """
     # Merge count tables
-    merge_tables.py \
-    -i $tables
+    merge_tables.py -i $tables
 
     # Run MultiQC
     mkdir -p multiqc/
@@ -472,6 +475,7 @@ process merge_tables_library {
 
   input:
     file(rpkm) from map_rpkm.collect()
+    file(seal) from map_seal.collect()
     file(stats) from map_bamstats.collect()
 
   output:
