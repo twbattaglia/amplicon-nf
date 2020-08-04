@@ -258,6 +258,7 @@ process mapping {
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
   publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
   publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
+  publishDir "$params.outdir/04_mapping/seal", mode: 'copy', pattern: '*-sealrpkm.txt'
   cpus 4
 
   input:
@@ -269,8 +270,9 @@ process mapping {
     file("${sample_id}-mapped.bam") into map_bam
     file("${sample_id}-unmapped.bam") into map_ubam
     file("${sample_id}-report.txt") into map_report
-    file("${sample_id}-rpkm.txt") optional true into map_rpkm
+    file("${sample_id}-rpkm.txt") into map_rpkm
     file("${sample_id}-bamstats.txt") into map_bamstats
+    file("${sample_id}-sealrpkm.txt") into map_seal
 
   when:
     params.check == false | params.mode == "library"
@@ -279,6 +281,7 @@ process mapping {
     def perfect = params.perfect ? 'perfectmode' : ''
     def semiperfect = params.semiperfect ? 'semiperfectmode' : ''
     """
+    # Run BBmap
     bbmap.sh \
     in=${reads} \
     out=${sample_id}-mapped.sam \
@@ -311,6 +314,13 @@ process mapping {
 
     # Basic BAM statsfile
     samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+
+    # Run Seal.sh
+    seal.sh \
+    in=${reads} \
+    ref=${library} \
+    rpkm=${sample_id}-sealrpkm.txt \
+    ambig=toss
     """
 }
 
@@ -461,7 +471,7 @@ process merge_tables_library {
   cpus 2
 
   input:
-    file(tables) from map_counts.collect()
+    file(rpkm) from map_rpkm.collect()
     file(stats) from map_bamstats.collect()
 
   output:
@@ -475,8 +485,7 @@ process merge_tables_library {
   script:
     """
     # Merge count tables
-    merge_tables.py \
-    -i $tables
+    merge_tables.py -i $rpkm --rpkm
 
     # Run MultiQC
     mkdir -p multiqc/
