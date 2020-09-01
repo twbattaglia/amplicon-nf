@@ -70,7 +70,7 @@ if (library_ch.isEmpty()) {exit 1, "File ${library_ch.getName()} is empty!"}
 // Run FASTQC on each sample for initial quality control
 process fastqc {
   publishDir "$params.outdir/01_quality/$sample_id", mode: 'copy'
-  cpus 2
+  cpus 4
 
   input:
     set sample_id, file(reads) from fastq_ch1
@@ -92,7 +92,7 @@ process fastqc {
 // Decontaminate reads of vector sequences
 process remove_vector {
   publishDir "$params.outdir/02_vector/$sample_id", mode: 'copy'
-  cpus 2
+  cpus 4
 
   input:
     set sample_id, file(reads) from fastq_ch2
@@ -124,7 +124,7 @@ process remove_vector {
 // Remove low quality reads from the decontaminated sequences
 process trim_filter {
   publishDir "$params.outdir/03_filter/$sample_id", mode: 'copy'
-  cpus 2
+  cpus 4
 
   input:
     set sample_id, file(reads) from decontam_fastq
@@ -202,7 +202,7 @@ process trim_filter {
 // Create library and check Hamming distance
 process check_library {
   publishDir "$params.outdir/04_mapping/library", mode: 'copy'
-  cpus 2
+  cpus 4
 
   input:
     file(library) from library_ch
