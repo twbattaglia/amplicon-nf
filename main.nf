@@ -21,6 +21,7 @@ def helpMessage() {
     Optional arguments:
       --print [bool]                        Option to print channel of files without running full pipeline (Default = False)
       --check [bool]                        Only run the first few steps to get a sense of the sequence data distribution. (Default = False)
+      --reverse [bool]                      Option to reverse complement the initial reads before analysis (Default = False)
       --quality [int]                       Minimum base quality score required when filtering with Cutadapt. (Default = 10)
       --univec [file]                       Path to UniVec database in FASTQ format. (Default is taken from within pipeline)
       --dedeup [bool]                       Option to enable removal of optical/PCR duplicates (Default = False)
@@ -29,7 +30,6 @@ def helpMessage() {
       --mapper [str]                        Select an alignment tool when mapping reads to barcodes. Can be of :
                                                 --mapper 'bbmap' | Default
                                                 --mapper 'bowtie2'
-
     """.stripIndent()
 }
 
@@ -76,10 +76,28 @@ process fastqc {
     set sample_id, file(reads) from fastq_ch1
 
   output:
-    file("*") into fastqc_raw
+    file("*.{html,zip}") into fastqc_raw
 
   script:
+  if( params.revese == true )
     """
+    # Reverse complement
+    reformat.sh \
+    in=${reads} \
+    out=${sample_id}-rev.fq.gz \
+    rcomp
+
+    # Run FastqQC
+    fastqc \
+    --outdir . \
+    --format fastq \
+    --quiet \
+    --threads ${task.cpus} \
+    ${sample_id}-rev.fq.gz
+    """
+  else
+    """
+    # Run FastqQC
     fastqc \
     --outdir . \
     --format fastq \
@@ -228,7 +246,7 @@ process check_library {
       #muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library for distance issues
-      check_library.py -i library-oligos.fa
+      check_library.py -i library-oligos.fa -m 'fasta'
       """
     else if ( params.mode == 'barcode' )
       """
@@ -244,7 +262,7 @@ process check_library {
       #muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library
-      check_library.py -i library-oligos.fa
+      check_library.py -i library-oligos.fa -m 'fasta'
       """
     else
         error "Invalid mode: ${params.mode}"
@@ -418,6 +436,8 @@ process map_barcodes {
       threads=${task.cpus} \
       statsfile=${sample_id}-report.txt \
       ambiguous=toss \
+      vslow \
+      rcomp=t \
       -Xmx6g \
       nodisk
 
