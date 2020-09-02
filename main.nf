@@ -79,32 +79,32 @@ process fastqc {
     file("*.{html,zip}") into fastqc_raw
 
   script:
-  if( params.reverse == true )
-    """
-    # Reverse complement
-    reformat.sh \
-    in=${reads} \
-    out=${sample_id}-rev.fq.gz \
-    rcomp
+    if( params.reverse == true )
+      """
+      # Reverse complement
+      reformat.sh \
+      in=${reads} \
+      out=${sample_id}-rev.fq.gz \
+      rcomp
 
-    # Run FastqQC
-    fastqc \
-    --outdir . \
-    --format fastq \
-    --quiet \
-    --threads ${task.cpus} \
-    ${sample_id}-rev.fq.gz
-    """
-  else
-    """
-    # Run FastqQC
-    fastqc \
-    --outdir . \
-    --format fastq \
-    --quiet \
-    --threads ${task.cpus} \
-    ${reads}
-    """
+      # Run FastqQC
+      fastqc \
+      --outdir . \
+      --format fastq \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}-rev.fq.gz
+      """
+    else
+      """
+      # Run FastqQC
+      fastqc \
+      --outdir . \
+      --format fastq \
+      --quiet \
+      --threads ${task.cpus} \
+      ${reads}
+      """
 }
 
 // Decontaminate reads of vector sequences
@@ -116,27 +116,46 @@ process remove_vector {
     set sample_id, file(reads) from fastq_ch2
 
   output:
-    set val(sample_id), file("${sample_id}-decontam.fq.gz") into decontam_fastq
-    file("${sample_id}*.{html,zip}") into fastqc_decontam
+    set val(sample_id), file("${sample_id}-decontam.fq.gz") into decontam_fastq,decontam_fastq2
+    file("*.{html,zip}") into fastqc_decontam
 
   script:
-    """
-    # Remove adapters and vectors
-    fastq-mcf \
-    -o ${sample_id}-decontam.fq \
-    ${univec_ch} \
-    ${reads}
+    if( params.reverse == true )
+      """
+      # Reverse complement
+      reformat.sh \
+      in=${reads} \
+      out=${sample_id}-rev.fq.gz \
+      rcomp
 
-    # Gzip to save space
-    gzip ${sample_id}-decontam.fq
+      # Remove adapters and vectors
+      fastq-mcf \
+      -o ${sample_id}-decontam.fq.gz \
+      ${univec_ch} \
+      ${sample_id}-rev.fq.gz
 
-    # Run FastQC on decontaminated data
-    fastqc \
-    --outdir . \
-    --quiet \
-    --threads ${task.cpus} \
-    ${sample_id}-decontam.fq.gz
-    """
+      # Run FastQC on decontaminated data
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}-decontam.fq.gz
+      """
+    else
+      """
+      # Remove adapters and vectors
+      fastq-mcf \
+      -o ${sample_id}-decontam.fq.gz \
+      ${univec_ch} \
+      ${reads}
+
+      # Run FastQC on decontaminated data
+      fastqc \
+      --outdir . \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}-decontam.fq.gz
+      """
 }
 
 // Remove low quality reads from the decontaminated sequences
@@ -352,10 +371,10 @@ process extract_barcodes {
 
   input:
     file(library) from library_fa_ch2
-    set sample_id, file(reads) from fastq_ch3
+    set sample_id, file(reads) from decontam_fastq2
 
   output:
-    set val(sample_id), file("${sample_id}-split.fq") into extract_fastq
+    set val(sample_id), file("${sample_id}-split.fq.gz") into extract_fastq
     file("${sample_id}*.{html,zip}") into fastqc_extract
 
   when:
@@ -364,14 +383,14 @@ process extract_barcodes {
   script:
     """
     # Extract the last N sequences (barcodes)
-    cat ${reads} | seqkit subseq -r -${params.length}:-1 > ${sample_id}-split.fq
+    zcat ${reads} | seqkit subseq -r -${params.length}:-1 | gzip -c > ${sample_id}-split.fq.gz
 
     # Run FastQC on decontaminated data
     fastqc \
     --outdir . \
     --quiet \
     --threads ${task.cpus} \
-    ${sample_id}-split.fq
+    ${sample_id}-split.fq.gz
     """
 }
 
@@ -437,7 +456,6 @@ process map_barcodes {
       statsfile=${sample_id}-report.txt \
       ambiguous=toss \
       vslow \
-      rcomp=t \
       -Xmx6g \
       nodisk
 
@@ -476,7 +494,7 @@ process merge_tables_barcodes {
   script:
     """
     # Merge count tables
-    merge_tables.py -i $tables
+    merge_tables.py -i $counts
 
     # Run MultiQC
     mkdir -p multiqc/
