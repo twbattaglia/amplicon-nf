@@ -79,7 +79,7 @@ process fastqc {
     file("*.{html,zip}") into fastqc_raw
 
   script:
-  if( params.revese == true )
+  if( params.reverse == true )
     """
     # Reverse complement
     reformat.sh \
