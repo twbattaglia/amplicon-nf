@@ -22,6 +22,8 @@ def helpMessage() {
       --print [bool]                        Option to print channel of files without running full pipeline (Default = False)
       --check [bool]                        Only run the first few steps to get a sense of the sequence data distribution. (Default = False)
       --reverse [bool]                      Option to reverse complement the initial reads before analysis (Default = False)
+      --cut5 [int]                          Parameter to cut 5' end in Bowtie2 alignment (Default = 0)
+      --cut3 [int]                          Parameter to cut 3' end in Bowtie2 alignment (Default = 0)
       --quality [int]                       Minimum base quality score required when filtering with Cutadapt. (Default = 10)
       --univec [file]                       Path to UniVec database in FASTQ format. (Default is taken from within pipeline)
       --dedeup [bool]                       Option to enable removal of optical/PCR duplicates (Default = False)
@@ -126,6 +128,9 @@ process remove_vector {
   output:
     set val(sample_id), file("${sample_id}-decontam.fq.gz") into decontam_fastq,decontam_fastq2
     file("*.{html,zip}") into fastqc_decontam
+
+  when:
+    params.cut3 == 0 | params.cut3 == 0
 
   script:
     if( params.reverse == true )
@@ -253,7 +258,7 @@ process check_library {
     file(library) from library_ch
 
   output:
-    file "library-oligos.fa" into library_fa_ch1,library_fa_ch2
+    file "library-oligos.fa" into library_fa_ch1,library_fa_ch2,library_fa_ch3
     file("library-oligos.txt") into library_txt
     file("*.png") into library_figs
 
@@ -411,7 +416,7 @@ process map_barcodes {
     file("${sample_id}-bamstats.txt") into barcode_bamstats
 
   when:
-    params.check == false && params.mode == "barcode"
+    params.check == false && params.mode == "barcode" && params.cut5 == 0 && params.cut3 == 0
 
   script:
   if( params.mapper == 'bowtie2' )
@@ -428,6 +433,7 @@ process map_barcodes {
       -U ${reads} \
       -S ${sample_id}-mapped.sam \
       --very-sensitive \
+      --threads ${task.cpus} \
       --norc 2> ${sample_id}-report.txt
 
       # Convert to BAM
@@ -475,6 +481,98 @@ process map_barcodes {
 }
 
 // Merge the tables for downstream analysis
+process map_barcodes_mageck {
+  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
+  publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
+  publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
+  cpus 2
+
+  input:
+    file(library) from library_fa_ch3
+    set sample_id, file(reads) from fastq_ch3
+
+  output:
+    file("${sample_id}-counts.txt") into barcode_counts_mageck
+    file("${sample_id}-mapped.bam") into barcode_bam_mageck
+    file("${sample_id}-report.txt") into barcode_report_mageck
+    file("${sample_id}-bamstats.txt") into barcode_bamstats_mageck
+
+  when:
+    params.check == false && params.mode == "barcode" && params.cut5 > 0 && params.cut3 > 0
+
+  script:
+    if( params.reverse == true )
+      """
+      # Reverse complement
+      reformat.sh \
+      in=${reads} \
+      out=${sample_id}-rev.fq.gz \
+      rcomp
+
+      # Make small bowtie2 index
+      bowtie2-build \
+      --threads ${task.cpus} \
+      ${library} \
+      genome.index
+
+      # Perform alignment
+      bowtie2 \
+      -x genome.index \
+      -U ${sample_id}-rev.fq.gz \
+      -S ${sample_id}-mapped.sam \
+      --threads ${task.cpus} \
+      --very-sensitive \
+      -5 ${params.cut5} \
+      -3 ${params.cut3} \
+      --norc 2> ${sample_id}-report.txt
+
+      # Convert to BAM
+      samtools view -S -f bam \
+      -o ${sample_id}-mapped.bam \
+      ${sample_id}-mapped.sam
+
+      # Get counts from alignment
+      pileup.sh \
+      in=${sample_id}-mapped.bam \
+      out=${sample_id}-counts.txt
+
+      # Basic BAM statsfile
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+      """
+  else
+      """
+      # Make small bowtie2 index
+      bowtie2-build \
+      --threads ${task.cpus} \
+      ${library} \
+      genome.index
+
+      # Perform alignment
+      bowtie2 \
+      -x genome.index \
+      -U ${reads} \
+      -S ${sample_id}-mapped.sam \
+      --threads ${task.cpus} \
+      --very-sensitive \
+      --norc 2> ${sample_id}-report.txt
+
+      # Convert to BAM
+      samtools view -S -f bam \
+      -o ${sample_id}-mapped.bam \
+      ${sample_id}-mapped.sam
+
+      # Get counts from alignment
+      pileup.sh \
+      in=${sample_id}-mapped.bam \
+      out=${sample_id}-counts.txt
+
+      # Basic BAM statsfile
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+      """
+}
+
+// Merge the tables for downstream analysis
 process merge_tables_barcodes {
   publishDir "$params.outdir/04_mapping/", mode: 'copy'
   cpus 2
@@ -482,6 +580,34 @@ process merge_tables_barcodes {
   input:
     file(counts) from barcode_counts.collect()
     file(stats) from barcode_bamstats.collect()
+
+  output:
+    file("*")
+
+  when:
+    params.check == false && params.mode == "barcode"
+
+  script:
+    """
+    # Merge count tables
+    merge_tables.py -i $counts
+
+    # Run MultiQC
+    mkdir -p multiqc/
+    multiqc \
+    --outdir multiqc \
+    $stats
+    """
+}
+
+// Merge the tables for downstream analysis
+process merge_tables_barcodes_mageck {
+  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  cpus 2
+
+  input:
+    file(counts) from barcode_counts_mageck.collect()
+    file(stats) from barcode_bamstats_mageck.collect()
 
   output:
     file("*")
