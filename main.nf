@@ -94,6 +94,14 @@ process fastqc {
       --quiet \
       --threads ${task.cpus} \
       ${sample_id}-rev.fq.gz
+
+      # Run FastqQC
+      fastqc \
+      --outdir . \
+      --format fastq \
+      --quiet \
+      --threads ${task.cpus} \
+      ${sample_id}-rev.fq.gz
       """
     else
       """
@@ -247,7 +255,6 @@ process check_library {
   output:
     file "library-oligos.fa" into library_fa_ch1,library_fa_ch2
     file("library-oligos.txt") into library_txt
-    //file("library-oligos.aln") into library_aln
     file("*.png") into library_figs
 
   script:
@@ -261,9 +268,6 @@ process check_library {
       # Convert table to FASTA
       seqkit tab2fx library-oligos.txt > library-oligos.fa
 
-      # Run MUSCLE to create MSA
-      #muscle -in library-oligos.fa -out library-oligos.aln
-
       # Check the fasta library for distance issues
       check_library.py -i library-oligos.fa -m 'fasta'
       """
@@ -276,9 +280,6 @@ process check_library {
 
       # Convert table to FASTA
       seqkit tab2fx library-oligos.txt > library-oligos.fa
-
-      # Run MUSCLE to create MSA
-      #muscle -in library-oligos.fa -out library-oligos.aln
 
       # Check the fasta library
       check_library.py -i library-oligos.fa -m 'fasta'
@@ -318,9 +319,6 @@ process mapping {
     def perfect = params.perfect ? 'perfectmode' : ''
     def semiperfect = params.semiperfect ? 'semiperfectmode' : ''
     """
-    # Error correction
-    #bfc -t 8 ${reads} | gzip -1 > ${reads}-corrected.fq.gz
-
     # Run BBmap
     bbmap.sh \
     in=${reads} \
