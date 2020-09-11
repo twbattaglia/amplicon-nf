@@ -296,12 +296,9 @@ process check_library {
 // Map reads directly to library
 process mapping {
   publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*-mapped.bam'
-  publishDir "$params.outdir/04_mapping/bam/ubam", mode: 'copy', pattern: '*-unmapped.bam'
   publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
   publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  publishDir "$params.outdir/04_mapping/rpkm", mode: 'copy', pattern: '*-rpkm.txt'
   publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
-  publishDir "$params.outdir/04_mapping/seal", mode: 'copy', pattern: '*-sealrpkm.txt'
   cpus 4
 
   input:
@@ -309,13 +306,10 @@ process mapping {
     set sample_id, file(reads) from filter_fastq
 
   output:
-    file("${sample_id}-counts.txt") into map_counts
-    file("${sample_id}-mapped.bam") into map_bam
-    file("${sample_id}-unmapped.bam") into map_ubam
-    file("${sample_id}-report.txt") into map_report
-    file("${sample_id}-rpkm.txt") into map_rpkm
-    file("${sample_id}-bamstats.txt") into map_bamstats
-    file("${sample_id}-sealrpkm.txt") into map_seal
+    file("${sample_id}-counts.txt") into mapped_counts
+    file("${sample_id}-mapped.bam") into mapped_bam
+    file("${sample_id}-report.txt") into mapped_report
+    file("${sample_id}-bamstats.txt") into mapped_bamstats
 
   when:
     params.check == false | params.mode == "library"
@@ -323,48 +317,68 @@ process mapping {
   script:
     def perfect = params.perfect ? 'perfectmode' : ''
     def semiperfect = params.semiperfect ? 'semiperfectmode' : ''
-    """
-    # Run BBmap
-    bbmap.sh \
-    in=${reads} \
-    out=${sample_id}-mapped.sam \
-    outu=${sample_id}-unmapped.sam \
-    rpkm=${sample_id}-rpkm.txt \
-    ref=${library} \
-    threads=${task.cpus} \
-    statsfile=${sample_id}-report.txt \
-    $perfect \
-    $semiperfect \
-    vslow \
-    ambiguous=toss \
-    -Xmx6g \
-    nodisk
 
-    # Convert to BAM
-    samtools view -S -f bam \
-    -o ${sample_id}-mapped.bam \
-    ${sample_id}-mapped.sam
+    if( params.mapper == 'bowtie2' )
+        """
+        # Make small bowtie2 index
+        bowtie2-build \
+        --threads ${task.cpus} \
+        ${library} \
+        genome.index
 
-    # Convert to BAM
-    samtools view -S -f bam \
-    -o ${sample_id}-unmapped.bam \
-    ${sample_id}-unmapped.sam
+        # Perform alignment
+        bowtie2 \
+        -x genome.index \
+        -U ${reads} \
+        -S ${sample_id}-mapped.sam \
+        --very-sensitive \
+        --threads ${task.cpus} \
+        --norc 2> ${sample_id}-report.txt
 
-    # Get counts from alignment
-    pileup.sh \
-    in=${sample_id}-mapped.bam \
-    out=${sample_id}-counts.txt
+        # Convert to BAM
+        samtools view -S -f bam \
+        -o ${sample_id}-mapped.bam \
+        ${sample_id}-mapped.sam
 
-    # Basic BAM statsfile
-    samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+        # Get counts from alignment
+        pileup.sh \
+        in=${sample_id}-mapped.bam \
+        out=${sample_id}-counts.txt
 
-    # Run Seal.sh
-    seal.sh \
-    in=${reads} \
-    ref=${library} \
-    rpkm=${sample_id}-sealrpkm.txt \
-    ambig=toss
-    """
+        # Basic BAM statsfile
+        samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+        """
+    else if( params.mapper == 'bbmap' )
+        """
+        bbmap.sh \
+        in=${reads} \
+        out=${sample_id}-mapped.sam \
+        ref=${library} \
+        threads=${task.cpus} \
+        statsfile=${sample_id}-report.txt \
+        ambiguous=toss \
+        $perfect \
+        $semiperfect \
+        vslow \
+        -Xmx6g \
+        nodisk
+
+        # Convert to BAM
+        samtools view -S -f bam \
+        -o ${sample_id}-mapped.bam \
+        ${sample_id}-mapped.sam
+
+        # Get counts from alignment
+        pileup.sh \
+        in=${sample_id}-mapped.bam \
+        out=${sample_id}-counts.txt
+
+        # Basic BAM statsfile
+        samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+        """
+    else
+        error "Invalid alignment mode: ${params.mapper}"
+
 }
 
 // Merge the tables for downstream analysis
@@ -630,20 +644,15 @@ process merge_tables_barcodes_mageck {
 
 // Merge the tables for downstream analysis
 process merge_tables_library {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy', pattern: "merged-counts*"
-  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: "multiqc/*"
+  publishDir "$params.outdir/04_mapping/", mode: 'copy'
   cpus 2
 
   input:
-    file(rpkm) from map_rpkm.collect()
-    file(counts) from map_counts.collect()
-    file(seal) from map_seal.collect()
-    file(stats) from map_bamstats.collect()
+    file(counts) from mapped_counts.collect()
+    file(stats) from mapped_bamstats.collect()
 
   output:
-    file("merged-counts.txt") into merged_counts
-    file("merged-counts-plot.png") into merged_counts_plot
-    file("multiqc/*") into multiqc
+    file("*")
 
   when:
     params.check == false && params.mode == "library"
@@ -651,7 +660,7 @@ process merge_tables_library {
   script:
     """
     # Merge count tables
-    merge_tables.py -i $rpkm --rpkm
+    merge_tables.py -i $counts
 
     # Run MultiQC
     mkdir -p multiqc/
