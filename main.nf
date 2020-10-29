@@ -461,7 +461,7 @@ process map_barcodes {
       out=${sample_id}-counts.txt
 
       # Basic BAM statsfile
-      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt      
       """
   else if( params.mapper == 'bbmap'  )
       """

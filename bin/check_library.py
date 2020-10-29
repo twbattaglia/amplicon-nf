@@ -5,10 +5,9 @@ import os
 import argparse
 import statistics
 from Bio import SeqIO
-from cogent3 import make_unaligned_seqs
-from cogent3.core.alignment import Alignment
-from cogent3.evolve import distance
-from cogent3.evolve.models import HKY85
+#from cogent3 import make_unaligned_seqs,get_distance_calculator
+#from cogent3.core.alignment import Alignment
+#from cogent3.evolve.models import HKY85
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -63,3 +62,12 @@ if __name__ == '__main__':
         # Import & Estimate distances
         #seq = make_unaligned_seqs(pad_record_dict, moltype="dna")
         #aln = Alignment(seq)
+        #dists = aln.distance_matrix(calc="hamming", show_progress=True)
+        #dist_df = pd.DataFrame(dists)
+        #dist_df.head()
+        #dist_calc.run( parallel=True )
+        #dists = dist_calc.get_pairwise_distances()
+        #mycluster = upgma(dist_calc.get_pairwise_distances())
+        #mycluster.write('test_upgma.tree')
+
+        #print(dists)

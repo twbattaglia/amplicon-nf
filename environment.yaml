@@ -16,6 +16,7 @@ dependencies:
   - bfc
   - picard
   - multiqc
+  - preseq
   - pip
   - pip:
     - cogent3
