@@ -69,57 +69,10 @@ if (univec_ch.isEmpty()) {exit 1, "File ${univec_ch.getName()} is empty!"}
 library_ch = file(params.library)
 if (library_ch.isEmpty()) {exit 1, "File ${library_ch.getName()} is empty!"}
 
-// Run FASTQC on each sample for initial quality control
-process fastqc {
-  publishDir "$params.outdir/01_quality/$sample_id", mode: 'copy'
-  cpus 4
-
-  input:
-    set sample_id, file(reads) from fastq_ch1
-
-  output:
-    file("*.{html,zip}") into fastqc_raw
-
-  script:
-    if( params.reverse == true )
-      """
-      # Reverse complement
-      reformat.sh \
-      in=${reads} \
-      out=${sample_id}-rev.fq.gz \
-      rcomp
-
-      # Run FastqQC
-      fastqc \
-      --outdir . \
-      --format fastq \
-      --quiet \
-      --threads ${task.cpus} \
-      ${sample_id}-rev.fq.gz
-
-      # Run FastqQC
-      fastqc \
-      --outdir . \
-      --format fastq \
-      --quiet \
-      --threads ${task.cpus} \
-      ${sample_id}-rev.fq.gz
-      """
-    else
-      """
-      # Run FastqQC
-      fastqc \
-      --outdir . \
-      --format fastq \
-      --quiet \
-      --threads ${task.cpus} \
-      ${reads}
-      """
-}
 
 // Decontaminate reads of vector sequences
 process remove_vector {
-  publishDir "$params.outdir/02_vector/$sample_id", mode: 'copy'
+  publishDir "$params.outdir/01_vector/$sample_id", mode: 'copy', pattern: "*.{html,zip}"
   cpus 4
 
   input:
@@ -173,7 +126,7 @@ process remove_vector {
 
 // Remove low quality reads from the decontaminated sequences
 process trim_filter {
-  publishDir "$params.outdir/03_filter/$sample_id", mode: 'copy'
+  publishDir "$params.outdir/02_filter/$sample_id", mode: 'copy'
   cpus 4
 
   input:
@@ -251,7 +204,7 @@ process trim_filter {
 
 // Create library and check Hamming distance
 process check_library {
-  publishDir "$params.outdir/04_mapping/library", mode: 'copy'
+  publishDir "$params.outdir/03_mapping/library", mode: 'copy'
   cpus 4
 
   input:
@@ -295,11 +248,12 @@ process check_library {
 
 // Map reads directly to library
 process mapping {
-  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*-mapped.bam'
-  publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
-  publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
+  //publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*-mapped.bam'
+  publishDir "$params.outdir/03_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
+  publishDir "$params.outdir/03_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/03_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 4
+  scratch "/ssd/t.battaglia/scratch"
 
   input:
     file(library) from library_fa_ch1
@@ -307,7 +261,7 @@ process mapping {
 
   output:
     file("${sample_id}-counts.txt") into mapped_counts
-    file("${sample_id}-mapped.bam") into mapped_bam
+    //file("${sample_id}-mapped.bam") into mapped_bam
     file("${sample_id}-report.txt") into mapped_report
     file("${sample_id}-bamstats.txt") into mapped_bamstats
 
@@ -342,11 +296,11 @@ process mapping {
 
         # Get counts from alignment
         pileup.sh \
-        in=${sample_id}-mapped.bam \
+        in=perfect-match.bam \
         out=${sample_id}-counts.txt
 
         # Basic BAM statsfile
-        samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+        samtools stats perfect-match.sam > ${sample_id}-bamstats.txt
         """
     else if( params.mapper == 'bbmap' )
         """
@@ -383,7 +337,7 @@ process mapping {
 
 // Merge the tables for downstream analysis
 process extract_barcodes {
-  publishDir "$params.outdir/03_extract/$sample_id", mode: 'copy'
+  publishDir "$params.outdir/02_extract/$sample_id", mode: 'copy'
   cpus 2
 
   input:
@@ -413,10 +367,10 @@ process extract_barcodes {
 
 // Merge the tables for downstream analysis
 process map_barcodes {
-  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
-  publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
-  publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
+  //publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
+  publishDir "$params.outdir/03_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
+  publishDir "$params.outdir/03_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/03_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 2
 
   input:
@@ -425,7 +379,7 @@ process map_barcodes {
 
   output:
     file("${sample_id}-counts.txt") into barcode_counts
-    file("${sample_id}-mapped.bam") into barcode_bam
+    //file("${sample_id}-mapped.bam") into barcode_bam
     file("${sample_id}-report.txt") into barcode_report
     file("${sample_id}-bamstats.txt") into barcode_bamstats
 
@@ -451,17 +405,20 @@ process map_barcodes {
       --norc 2> ${sample_id}-report.txt
 
       # Convert to BAM
-      samtools view -S -f bam \
+      samtools view -@ 4 -S -f bam \
       -o ${sample_id}-mapped.bam \
       ${sample_id}-mapped.sam
 
+      # Take exact matched
+      bamtools filter -tag XM:0 -in ${sample_id}-mapped.bam -out perfect-match.bam
+
       # Get counts from alignment
       pileup.sh \
-      in=${sample_id}-mapped.bam \
+      in=perfect-match.bam \
       out=${sample_id}-counts.txt
 
       # Basic BAM statsfile
-      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt      
+      samtools stats perfect-match.bam > ${sample_id}-bamstats.txt
       """
   else if( params.mapper == 'bbmap'  )
       """
@@ -496,10 +453,10 @@ process map_barcodes {
 
 // Merge the tables for downstream analysis
 process map_barcodes_mageck {
-  publishDir "$params.outdir/04_mapping/bam", mode: 'copy', pattern: '*.bam'
-  publishDir "$params.outdir/04_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
-  publishDir "$params.outdir/04_mapping/report", mode: 'copy', pattern: '*-report.txt'
-  publishDir "$params.outdir/04_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
+  publishDir "$params.outdir/03_mapping/bam", mode: 'copy', pattern: '*.bam'
+  publishDir "$params.outdir/03_mapping/counts", mode: 'copy', pattern: '*-counts.txt'
+  publishDir "$params.outdir/03_mapping/report", mode: 'copy', pattern: '*-report.txt'
+  publishDir "$params.outdir/03_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 2
 
   input:
@@ -588,7 +545,7 @@ process map_barcodes_mageck {
 
 // Merge the tables for downstream analysis
 process merge_tables_barcodes {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  publishDir "$params.outdir/03_mapping/", mode: 'copy'
   cpus 2
 
   input:
@@ -616,7 +573,7 @@ process merge_tables_barcodes {
 
 // Merge the tables for downstream analysis
 process merge_tables_barcodes_mageck {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  publishDir "$params.outdir/03_mapping/", mode: 'copy'
   cpus 2
 
   input:
@@ -644,7 +601,7 @@ process merge_tables_barcodes_mageck {
 
 // Merge the tables for downstream analysis
 process merge_tables_library {
-  publishDir "$params.outdir/04_mapping/", mode: 'copy'
+  publishDir "$params.outdir/03_mapping/", mode: 'copy'
   cpus 2
 
   input:
