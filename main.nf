@@ -296,11 +296,11 @@ process mapping {
 
         # Get counts from alignment
         pileup.sh \
-        in=perfect-match.bam \
+        in=${sample_id}-mapped.bam \
         out=${sample_id}-counts.txt
 
         # Basic BAM statsfile
-        samtools stats perfect-match.sam > ${sample_id}-bamstats.txt
+        samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
         """
     else if( params.mapper == 'bbmap' )
         """
@@ -412,13 +412,13 @@ process map_barcodes {
       # Take exact matched
       bamtools filter -tag XM:0 -in ${sample_id}-mapped.bam -out perfect-match.bam
 
+      # Basic BAM statsfile
+      samtools stats ${sample_id}-mapped.bam > ${sample_id}-bamstats.txt
+
       # Get counts from alignment
       pileup.sh \
       in=perfect-match.bam \
       out=${sample_id}-counts.txt
-
-      # Basic BAM statsfile
-      samtools stats perfect-match.bam > ${sample_id}-bamstats.txt
       """
   else if( params.mapper == 'bbmap'  )
       """
