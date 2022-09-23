@@ -1,5 +1,0 @@
-- add Illumina error correction step
-- add library (txt file) checking step
-- add library (fasta file) checking step
-- look into reducing PCR error
-- add median-normalized table
