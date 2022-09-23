@@ -253,7 +253,6 @@ process mapping {
   publishDir "$params.outdir/03_mapping/report", mode: 'copy', pattern: '*-report.txt'
   publishDir "$params.outdir/03_mapping/bamstats", mode: 'copy', pattern: '*-bamstats.txt'
   cpus 4
-  scratch "/ssd/t.battaglia/scratch"
 
   input:
     file(library) from library_fa_ch1
