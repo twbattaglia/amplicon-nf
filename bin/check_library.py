@@ -10,12 +10,12 @@ from Bio import SeqIO
 #from cogent3.evolve.models import HKY85
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib
-import matplotlib.pyplot as plt
+#import seaborn as sns
+#import matplotlib
+#import matplotlib.pyplot as plt
 import warnings
-matplotlib.use('Agg')
-matplotlib.style.use('ggplot')
+#matplotlib.use('Agg')
+#matplotlib.style.use('ggplot')
 warnings.filterwarnings("ignore")
 
 # Pad sequences that are too short
@@ -44,20 +44,20 @@ if __name__ == '__main__':
         library_mode = statistics.mode(rec_len)
 
         # Print histogram of length distribution
-        sns_plot = sns.distplot(rec_len, kde=False, rug=True).set_title('Distribution of library read lengths (nt)')
-        fig = sns_plot.get_figure()
-        fig.savefig("library-histogram.png")
+        #sns_plot = sns.distplot(rec_len, kde=False, rug=True).set_title('Distribution of library read lengths (nt)')
+        #fig = sns_plot.get_figure()
+        #fig.savefig("library-histogram.png")
 
         # Pad short sequences
-        pad_record_dict = {}
-        for id, record in record_dict.items():
-            if len(record.seq) < library_mode:
-                case = { id: pad_read(record, library_mode) }
-            elif len(record.seq) > library_mode:
-                print("Read is longer than the mode lengths")
-            else:
-                case = { id: str(record.seq) }
-            pad_record_dict.update(case)
+        #pad_record_dict = {}
+        #for id, record in record_dict.items():
+        #    if len(record.seq) < library_mode:
+        #        case = { id: pad_read(record, library_mode) }
+        #    elif len(record.seq) > library_mode:
+        #        print("Read is longer than the mode lengths")
+         #   else:
+         #       case = { id: str(record.seq) }
+         #   pad_record_dict.update(case)
 
         # Import & Estimate distances
         #seq = make_unaligned_seqs(pad_record_dict, moltype="dna")
